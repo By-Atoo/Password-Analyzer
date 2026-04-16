@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Analyzer | Анализатор паролей</title>
+    <style>
+        /* (все стили остаются без изменений, добавлен только стиль для индикатора загрузки словаря) */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #111111;
+            --bg-card-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #cccccc;
+            --text-muted: #888888; --border: #222222; --accent-primary: #3b82f6;
+            --accent-secondary: #8b5cf6; --accent-danger: #ef4444; --accent-warning: #f59e0b;
+            --accent-success: #10b981; --shadow: 0 4px 12px rgba(0,0,0,0.3); --glow: rgba(59,130,246,0.15);
+        }
+        body.light {
+            --bg-primary: #eef2f5; --bg-secondary: #e2e8f0; --bg-card: #f5f7fa;
+            --bg-card-hover: #e8edf3; --text-primary: #1a2c3e; --text-secondary: #334155;
+            --text-muted: #5a6e8a; --border: #cbd5e1; --shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        body {
+            font-family: 'Segoe UI', -apple-system, 'Roboto', sans-serif;
+            background: var(--bg-primary); min-height: 100vh; transition: background 0.3s, color 0.3s;
+            color: var(--text-primary); position: relative;
+        }
+        body.animated-bg::before {
+            content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle at 20% 30%, rgba(59,130,246,0.2) 0%, transparent 40%),
+                        radial-gradient(circle at 80% 70%, rgba(139,92,246,0.2) 0%, transparent 40%),
+                        radial-gradient(circle at 40% 80%, rgba(16,185,129,0.12) 0%, transparent 40%),
+                        repeating-linear-gradient(45deg, rgba(59,130,246,0.04) 0px, transparent 2px, transparent 12px);
+            animation: vibrantDrift 12s infinite; pointer-events: none; z-index: 0;
+        }
+        body.light.animated-bg::before {
+            background: radial-gradient(circle at 20% 30%, rgba(59,130,246,0.12) 0%, transparent 40%),
+                        radial-gradient(circle at 80% 70%, rgba(139,92,246,0.12) 0%, transparent 40%),
+                        repeating-linear-gradient(45deg, rgba(59,130,246,0.03) 0px, transparent 2px, transparent 12px);
+        }
+        @keyframes vibrantDrift {
+            0%,100% { transform: scale(1) translate(0,0); opacity:0.8; }
+            25% { transform: scale(1.03) translate(1%,1%); opacity:1; }
+            50% { transform: scale(0.98) translate(-1%,-0.5%); opacity:0.9; }
+            75% { transform: scale(1.02) translate(-0.5%,1%); opacity:0.85; }
+        }
+        .floating-controls {
+            position: fixed; top: 20px; right: 20px; display: flex; gap: 12px; z-index: 1001;
+            background: rgba(0,0,0,0.75); backdrop-filter: blur(12px); padding: 8px 18px;
+            border-radius: 40px; border: 1px solid rgba(255,255,255,0.15);
+        }
+        .control-group { display: flex; align-items: center; gap: 8px; }
+        .control-label { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; color: #fff; }
+        .mini-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+        .mini-switch input { opacity: 0; width: 0; height: 0; }
+        .mini-slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #333; transition: 0.2s; border-radius: 22px;
+        }
+        .mini-slider:before {
+            position: absolute; content: ""; height: 18px; width: 18px; left: 2px; bottom: 2px;
+            background-color: white; transition: 0.2s; border-radius: 50%;
+        }
+        input:checked + .mini-slider { background-color: var(--accent-primary); }
+        input:checked + .mini-slider:before { transform: translateX(18px); }
+        .container { max-width: 680px; margin: 0 auto; padding: 40px 20px; position: relative; z-index: 1; }
+        .audit-card {
+            background: var(--bg-card); border-radius: 28px; border: 1px solid var(--border);
+            padding: 36px; transition: all 0.3s; box-shadow: var(--shadow); position: relative; z-index: 2;
+        }
+        h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+        .subtitle {
+            color: var(--text-secondary); font-size: 14px; margin-bottom: 32px;
+            border-left: 3px solid var(--accent-primary); padding-left: 12px;
+        }
+        .input-section { margin-bottom: 24px; }
+        .password-field { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .password-input-wrapper { position: relative; flex: 1; min-width: 200px; }
+        .password-input {
+            width: 100%; padding: 16px 80px 16px 18px; font-size: 15px;
+            font-family: 'JetBrains Mono', monospace; background: var(--bg-secondary);
+            border: 2px solid var(--border); border-radius: 16px; color: var(--text-primary);
+            transition: all 0.2s; font-weight: 500;
+        }
+        .password-input:focus {
+            outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px var(--glow);
+        }
+        .show-btn {
+            position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+            background: var(--bg-card); border: 1px solid var(--border); cursor: pointer;
+            font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 10px;
+            transition: all 0.2s; color: var(--text-primary);
+        }
+        .show-btn:hover { background: var(--accent-primary); color: white; }
+        .generate-btn-header {
+            background: var(--accent-primary); border: none; padding: 0 24px; height: 56px;
+            border-radius: 16px; color: white; cursor: pointer; font-size: 14px; font-weight: 700;
+            transition: all 0.2s; display: flex; align-items: center; gap: 8px;
+        }
+        .generate-btn-header:hover { background: #2563eb; transform: translateY(-2px); }
+        .mode-selector {
+            display: flex; gap: 10px; margin: 20px 0 10px; justify-content: center; flex-wrap: wrap;
+        }
+        .mode-btn {
+            padding: 8px 20px; background: var(--bg-secondary); border: 2px solid var(--border);
+            border-radius: 40px; font-size: 13px; font-weight: 700; cursor: pointer;
+            transition: all 0.2s; color: var(--text-primary);
+        }
+        .mode-btn.active { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
+        .mode-btn.weak.active { background: var(--accent-danger); border-color: var(--accent-danger); }
+        .mode-btn.medium.active { background: var(--accent-warning); border-color: var(--accent-warning); }
+        .mode-btn.strong.active { background: var(--accent-success); border-color: var(--accent-success); }
+        .mode-btn.absurd.active { background: var(--accent-secondary); border-color: var(--accent-secondary); }
+        .strength-section { margin: 24px 0; }
+        .strength-bar { background: var(--bg-secondary); height: 8px; border-radius: 4px; overflow: hidden; }
+        .strength-fill { height: 100%; width: 0%; transition: width 0.3s; border-radius: 4px; }
+        .strength-label { margin-top: 12px; font-size: 14px; font-weight: 700; color: var(--text-primary); }
+        .time-section {
+            background: linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(139,92,246,0.1) 100%);
+            border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin: 24px 0;
+        }
+        .time-label { font-size: 12px; color: var(--text-secondary); letter-spacing: 1px; margin-bottom: 6px; font-weight: 600; }
+        .time-value { font-size: 28px; font-weight: 800; color: var(--text-primary); font-family: monospace; }
+        .time-detail { font-size: 13px; color: var(--text-muted); margin-top: 8px; font-family: monospace; }
+        .recommendation-text { font-size: 13px; color: var(--accent-warning); margin-top: 8px; font-weight: 500; }
+        .criteria-section {
+            background: var(--bg-secondary); border-radius: 20px; padding: 24px; margin: 24px 0;
+        }
+        .section-title {
+            font-size: 12px; letter-spacing: 1.5px; color: var(--text-muted);
+            margin-bottom: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+        }
+        .dict-status {
+            font-size: 11px; padding: 2px 8px; border-radius: 12px; background: var(--bg-card);
+            color: var(--text-muted);
+        }
+        .dict-status.loaded { background: var(--accent-success); color: white; }
+        .dict-status.loading { background: var(--accent-warning); color: black; }
+        .criteria-list { display: flex; flex-direction: column; gap: 10px; }
+        .criterion-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+            border-radius: 14px; background: var(--bg-card); font-size: 13px;
+            transition: all 0.3s; font-weight: 500;
+        }
+        .criterion-item.completed { background: rgba(16,185,129,0.12); border-left: 3px solid var(--accent-success); }
+        .criterion-item.active { border-left: 3px solid var(--accent-primary); background: var(--bg-card-hover); }
+        .criterion-item.locked { opacity: 0.5; filter: blur(0.5px); }
+        .criterion-item.error { border-left: 3px solid var(--accent-danger); background: rgba(239,68,68,0.1); }
+        .criterion-icon { width: 24px; text-align: center; font-size: 16px; }
+        .criterion-hint { font-size: 11px; color: var(--accent-primary); margin-top: 6px; margin-left: 36px; font-weight: 500; }
+        .footer { text-align: center; margin-top: 24px; font-size: 11px; color: var(--text-muted); font-weight: 500; }
+        .leak-warning {
+            background: rgba(239,68,68,0.1); border: 1px solid var(--accent-danger);
+            border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; color: var(--accent-danger);
+            font-weight: 600; display: flex; align-items: center; gap: 8px;
+        }
+    </style>
+</head>
+<body class="dark animated-bg">
+    <div class="floating-controls">
+        <div class="control-group">
+            <span class="control-label">Theme</span>
+            <label class="mini-switch">
+                <input type="checkbox" id="darkModeToggle">
+                <span class="mini-slider"></span>
+            </label>
+            <span class="control-label">Background</span>
+        </div>
+        <div class="control-group">
+            <span class="control-label"></span>
+            <label class="mini-switch">
+                <input type="checkbox" id="animatedBgToggle" checked>
+                <span class="mini-slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="audit-card">
+            <h1>Password Analyzer</h1>
+            <div class="subtitle">Анализ энтропии и времени компрометации</div>
+
+            <div class="input-section">
+                <div class="password-field">
+                    <div class="password-input-wrapper">
+                        <input type="password" id="password" class="password-input" placeholder="Введите пароль для анализа...">
+                        <button class="show-btn" id="togglePassword">Показать</button>
+                    </div>
+                    <button class="generate-btn-header" id="generateBtn">
+                        <span>⚡</span> Генерация
+                    </button>
+                </div>
+            </div>
+
+            <div class="mode-selector">
+                <button class="mode-btn weak" data-mode="weak">WEAK</button>
+                <button class="mode-btn medium" data-mode="medium">MEDIUM</button>
+                <button class="mode-btn strong active" data-mode="strong">STRONG</button>
+                <button class="mode-btn absurd" data-mode="absurd">ABSURD</button>
+            </div>
+
+            <div class="strength-section">
+                <div class="strength-bar">
+                    <div class="strength-fill" id="strengthFill"></div>
+                </div>
+                <div class="strength-label" id="strengthText">Ожидание ввода</div>
+            </div>
+
+            <div class="time-section">
+                <div class="time-label">ВРЕМЯ ПОДБОРА (BRUTE FORCE)</div>
+                <div class="time-value" id="crackTime">—</div>
+                <div class="time-detail" id="crackDetail"></div>
+                <div class="recommendation-text" id="recommendation"></div>
+            </div>
+
+            <!-- Блок предупреждения об утечке (появляется при совпадении) -->
+            <div id="leakWarning" class="leak-warning" style="display: none;">
+                <span>⚠️</span> Этот пароль найден в базах утечек! Используйте другой.
+            </div>
+
+            <div class="criteria-section">
+                <div class="section-title">
+                    КРИТЕРИИ БЕЗОПАСНОСТИ
+                    <span id="dictStatus" class="dict-status loading">Загрузка словаря...</span>
+                </div>
+                <div class="criteria-list" id="criteriaList"></div>
+            </div>
+
+            <div class="footer">
+                Локальный анализ | Данные не передаются
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            "use strict";
+
+            // ---------- СОСТОЯНИЕ ----------
+            let currentMode = 'strong';
+            // Множество скомпрометированных паролей из GitHub
+            let leakedPasswords = new Set();
+            let dictionaryLoaded = false;
+            let dictionaryLoading = false;
+
+            const BASE_CRITERIA = [
+                { id: 'length', text: 'Длина пароля составляет 12+ символов', hint: 'Добавьте ещё 2-4 символа' },
+                { id: 'case', text: 'Использование верхнего и нижнего регистра', hint: 'Добавьте заглавную букву (A-Z)' },
+                { id: 'digit', text: 'Включение цифр (0-9)', hint: 'Добавьте хотя бы одну цифру' },
+                { id: 'special', text: 'Использование специальных символов', hint: 'Добавьте символ (!@#$%^&*)' },
+                { id: 'noPattern', text: 'Отсутствие последовательностей (123, qwerty)', hint: 'Удалите последовательные символы' },
+                { id: 'noRepeat', text: 'Отсутствие повторяющихся символов подряд', hint: 'Удалите повторяющиеся символы (aaa, 111)' },
+                { id: 'notLeaked', text: 'Пароль не найден в базах утечек', hint: 'Этот пароль был скомпрометирован, придумайте новый' }
+            ];
+
+            // ---------- ЗАГРУЗКА СЛОВАРЯ УТЕЧЕК С GITHUB ----------
+            async function loadLeakedPasswords() {
+                if (dictionaryLoading || dictionaryLoaded) return;
+                dictionaryLoading = true;
+                const statusEl = document.getElementById('dictStatus');
+                statusEl.textContent = 'Загрузка...';
+                statusEl.className = 'dict-status loading';
+
+                try {
+                    // Используем популярный список из 10k самых распространённых паролей (SecLists)
+                    const url = 'https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10k-most-common.txt';
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const text = await response.text();
+                    // Разбиваем по строкам, очищаем от пробелов, игнорируем пустые
+                    const lines = text.split('\n');
+                    for (let line of lines) {
+                        const pwd = line.trim();
+                        if (pwd) leakedPasswords.add(pwd);
+                    }
+                    dictionaryLoaded = true;
+                    statusEl.textContent = `Загружено ${leakedPasswords.size} паролей`;
+                    statusEl.className = 'dict-status loaded';
+                } catch (error) {
+                    console.warn('Не удалось загрузить словарь утечек:', error);
+                    statusEl.textContent = 'Ошибка загрузки';
+                    statusEl.className = 'dict-status';
+                    dictionaryLoaded = false; // можно работать без проверки утечек
+                } finally {
+                    dictionaryLoading = false;
+                    // После загрузки (или ошибки) пересчитать UI, если уже есть пароль
+                    updateUI();
+                }
+            }
+
+            // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ АНАЛИЗА ----------
+            function checkBaseCriteria(password) {
+                return [
+                    password.length >= 12,
+                    /[A-Z]/.test(password) && /[a-z]/.test(password),
+                    /\d/.test(password),
+                    /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password),
+                    !/(012|123|234|345|456|567|678|789|qwe|wer|ert|rty|tyu|yui|uio|iop|abc|bcd|cde|def|efg)/i.test(password),
+                    !/(.)\1{2,}/.test(password),
+                    // критерий утечки: true, если пароль НЕ найден в словаре (или словарь не загружен)
+                    dictionaryLoaded ? !leakedPasswords.has(password) : true
+                ];
+            }
+
+            function updateCriteria(password) {
+                const baseResults = checkBaseCriteria(password);
+                const criteriaList = document.getElementById('criteriaList');
+                
+                // Определяем первый незавершённый критерий
+                let firstIncomplete = baseResults.findIndex(r => !r);
+                if (firstIncomplete === -1) firstIncomplete = baseResults.length;
+                
+                const items = [];
+                for (let i = 0; i < baseResults.length; i++) {
+                    const isCompleted = baseResults[i];
+                    const isActive = i === firstIncomplete && !isCompleted;
+                    const isLocked = i > firstIncomplete && !isCompleted;
+                    
+                    items.push({
+                        ...BASE_CRITERIA[i],
+                        completed: isCompleted,
+                        active: isActive,
+                        locked: isLocked
+                    });
+                }
+                
+                criteriaList.innerHTML = items.map(item => {
+                    let statusClass = '';
+                    if (item.completed) statusClass = 'completed';
+                    else if (item.active) statusClass = 'active';
+                    else statusClass = 'locked';
+                    // Для критерия утечки, если он не выполнен, подсвечиваем как error
+                    if (item.id === 'notLeaked' && !item.completed && dictionaryLoaded) {
+                        statusClass = 'error';
+                    }
+                    return `
+                        <div class="criterion-item ${statusClass}">
+                            <div class="criterion-icon">${item.completed ? '✓' : (item.id === 'notLeaked' && !item.completed ? '⚠️' : '○')}</div>
+                            <div style="flex:1">
+                                <div>${item.text}</div>
+                                ${item.active && !item.completed ? `<div class="criterion-hint">💡 ${item.hint}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            function formatDetailedTime(seconds) {
+                if (seconds < 1) return { main: 'Менее 1 секунды', detail: 'Мгновенный взлом' };
+                if (seconds < 60) return { main: `${Math.floor(seconds)} секунд`, detail: `≈ ${(seconds * 1000).toFixed(0)} мс` };
+                if (seconds < 3600) {
+                    const minutes = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return { main: `${minutes} мин ${secs} сек`, detail: `≈ ${seconds.toFixed(1)} секунд` };
+                }
+                if (seconds < 86400) {
+                    const hours = Math.floor(seconds / 3600);
+                    const minutes = Math.floor((seconds % 3600) / 60);
+                    return { main: `${hours} ч ${minutes} мин`, detail: `≈ ${(seconds / 3600).toFixed(2)} часов` };
+                }
+                if (seconds < 31536000) {
+                    const days = Math.floor(seconds / 86400);
+                    const hours = Math.floor((seconds % 86400) / 3600);
+                    return { main: `${days} дн ${hours} ч`, detail: `≈ ${(seconds / 86400).toFixed(2)} дней` };
+                }
+                if (seconds < 3153600000) {
+                    const years = Math.floor(seconds / 31536000);
+                    const days = Math.floor((seconds % 31536000) / 86400);
+                    return { main: `${years} год ${days} дн`, detail: `≈ ${(seconds / 31536000).toFixed(2)} лет` };
+                }
+                return { main: 'Более 100 лет', detail: 'Практически невозможно взломать' };
+            }
+
+            function generatePasswordByMode(mode) {
+                const lower = 'abcdefghijklmnopqrstuvwxyz';
+                const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                const digits = '0123456789';
+                const special = '!@#$%^&*';
+                let password = '', length = 0;
+                
+                switch(mode) {
+                    case 'weak':
+                        length = 8;
+                        const weakChars = lower + digits;
+                        for (let i = 0; i < length; i++) password += weakChars.charAt(Math.floor(Math.random() * weakChars.length));
+                        break;
+                    case 'medium':
+                        length = 12;
+                        const mediumChars = lower + upper + digits;
+                        for (let i = 0; i < length; i++) password += mediumChars.charAt(Math.floor(Math.random() * mediumChars.length));
+                        if (!/\d/.test(password)) password = password.substring(1) + Math.floor(Math.random() * 10);
+                        break;
+                    case 'strong':
+                        length = 16;
+                        const strongChars = lower + upper + digits + special;
+                        for (let i = 0; i < length; i++) password += strongChars.charAt(Math.floor(Math.random() * strongChars.length));
+                        if (!/[A-Z]/.test(password)) password = 'A' + password.substring(1);
+                        if (!/[a-z]/.test(password)) password = password.substring(1) + 'a';
+                        if (!/\d/.test(password)) password = password.substring(1) + '1';
+                        if (!/[!@#$%^&*]/.test(password)) password = password.substring(1) + '!';
+                        break;
+                    case 'absurd':
+                        length = 20;
+                        const items = ['Moscow', 'London', 'Berlin', 'Barsik', 'Murka', 'Bobik'];
+                        const absurdPart = items[Math.floor(Math.random() * items.length)];
+                        const year = Math.floor(Math.random() * (2024 - 1990 + 1) + 1990);
+                        password = absurdPart + year;
+                        const allChars = lower + upper + digits + special;
+                        for (let i = password.length; i < length; i++) password += allChars.charAt(Math.floor(Math.random() * allChars.length));
+                        if (!/[A-Z]/.test(password)) password = 'A' + password;
+                        if (!/[a-z]/.test(password)) password = password + 'a';
+                        if (!/\d/.test(password)) password = password + year;
+                        if (!/[!@#$%^&*]/.test(password)) password = password + '!';
+                        password = password.split('').sort(() => Math.random() - 0.5).join('');
+                        break;
+                }
+                password = password.split('').sort(() => Math.random() - 0.5).join('');
+                while (password.length < length) password += Math.floor(Math.random() * 10);
+                return password.substring(0, length);
+            }
+
+            function analyzePassword(password) {
+                if (!password) {
+                    return { strengthText: 'Ожидание ввода', strengthColor: '#888888', width: 0, crackTime: '—', crackDetail: '', recommendation: 'Введите пароль для анализа', seconds: 0, isLeaked: false };
+                }
+
+                const length = password.length;
+                const hasUpper = /[A-Z]/.test(password);
+                const hasLower = /[a-z]/.test(password);
+                const hasDigit = /\d/.test(password);
+                const hasSpecial = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password);
+                const hasRussian = /[а-яА-Я]/.test(password);
+                const hasSequence = /(012|123|234|345|456|567|678|789|abc|bcd|cde|def|efg|qwe|wer|ert|rty|tyu|yui|uio|iop)/i.test(password);
+                const hasRepeat = /(.)\1{2,}/.test(password);
+                const isLeaked = dictionaryLoaded && leakedPasswords.has(password);
+                
+                let alphabetSize = 0;
+                if (hasDigit) alphabetSize += 10;
+                if (hasLower) alphabetSize += 26;
+                if (hasUpper) alphabetSize += 26;
+                if (hasSpecial) alphabetSize += 33;
+                if (hasRussian) alphabetSize += 66;
+                if (alphabetSize === 0) alphabetSize = 1;
+                
+                let combinations = Math.pow(alphabetSize, length);
+                if (hasSequence) combinations /= 10000;
+                if (hasRepeat) combinations /= 1000;
+                // Если пароль утёк, время взлома не имеет значения — он уже скомпрометирован
+                
+                let seconds = combinations / 1_000_000_000;
+                if (seconds > 1e15) seconds = 1e15;
+                
+                const timeInfo = formatDetailedTime(seconds);
+                
+                let strengthText, strengthColor, width;
+                // Если пароль в утечках, принудительно «СЛАБЫЙ» / «НЕНАДЁЖНЫЙ»
+                if (isLeaked) {
+                    strengthText = 'СКОМПРОМЕТИРОВАН';
+                    strengthColor = '#ef4444';
+                    width = 15;
+                } else if (seconds < 3600) { strengthText = 'НЕНАДЁЖНЫЙ'; strengthColor = '#ef4444'; width = 25; }
+                else if (seconds < 86400) { strengthText = 'СЛАБЫЙ'; strengthColor = '#f59e0b'; width = 45; }
+                else if (seconds < 31536000) { strengthText = 'УМЕРЕННЫЙ'; strengthColor = '#eab308'; width = 65; }
+                else if (seconds < 3153600000) { strengthText = 'НАДЁЖНЫЙ'; strengthColor = '#10b981'; width = 85; }
+                else { strengthText = 'ЭТАЛОННЫЙ'; strengthColor = '#8b5cf6'; width = 100; }
+                
+                let recommendation;
+                if (isLeaked) recommendation = 'Пароль обнаружен в базах утечек. Немедленно смените его!';
+                else if (seconds < 3600) recommendation = 'Критическая уязвимость. Немедленно замените пароль.';
+                else if (seconds < 86400) recommendation = 'Высокий риск. Пароль может быть скомпрометирован в течение дня.';
+                else if (seconds < 31536000) recommendation = 'Средний уровень защиты. Рекомендуется усиление.';
+                else if (seconds < 3153600000) recommendation = 'Хороший уровень. Обеспечивает достаточную защиту.';
+                else recommendation = 'Максимальный уровень защиты. Пароль устойчив к атакам перебора.';
+                
+                return { strengthText, strengthColor, width, crackTime: timeInfo.main, crackDetail: timeInfo.detail, recommendation, seconds, isLeaked };
+            }
+
+            // ---------- ОБНОВЛЕНИЕ UI ----------
+            function updateUI() {
+                const password = document.getElementById('password').value;
+                const result = analyzePassword(password);
+                
+                const fillEl = document.getElementById('strengthFill');
+                fillEl.style.width = result.width + '%';
+                fillEl.style.backgroundColor = result.strengthColor;
+                
+                const strengthTextEl = document.getElementById('strengthText');
+                strengthTextEl.textContent = result.strengthText;
+                strengthTextEl.style.color = result.strengthColor;
+                
+                document.getElementById('crackTime').textContent = result.crackTime;
+                document.getElementById('crackDetail').textContent = result.crackDetail;
+                document.getElementById('recommendation').textContent = result.recommendation;
+                
+                const leakWarning = document.getElementById('leakWarning');
+                if (result.isLeaked) {
+                    leakWarning.style.display = 'flex';
+                } else {
+                    leakWarning.style.display = 'none';
+                }
+                
+                updateCriteria(password);
+            }
+
+            function setGeneratedPassword() {
+                const password = generatePasswordByMode(currentMode);
+                document.getElementById('password').value = password;
+                updateUI();
+            }
+
+            function toggleVisibility() {
+                const input = document.getElementById('password');
+                const btn = document.getElementById('togglePassword');
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btn.textContent = 'Скрыть';
+                } else {
+                    input.type = 'password';
+                    btn.textContent = 'Показать';
+                }
+            }
+
+            function toggleDarkMode() {
+                const isDark = document.getElementById('darkModeToggle').checked;
+                if (isDark) {
+                    document.body.classList.remove('light');
+                    document.body.classList.add('dark');
+                } else {
+                    document.body.classList.remove('dark');
+                    document.body.classList.add('light');
+                }
+            }
+
+            function toggleAnimatedBg() {
+                document.body.classList.toggle('animated-bg', document.getElementById('animatedBgToggle').checked);
+            }
+
+            // ---------- ИНИЦИАЛИЗАЦИЯ ----------
+            document.addEventListener('DOMContentLoaded', () => {
+                // Начальные настройки темы и фона
+                document.getElementById('darkModeToggle').checked = false;
+                document.body.classList.add('dark');
+                document.getElementById('animatedBgToggle').checked = true;
+                document.body.classList.add('animated-bg');
+                
+                // Запускаем загрузку словаря (асинхронно)
+                loadLeakedPasswords();
+                
+                const passwordInput = document.getElementById('password');
+                passwordInput.value = '';
+                
+                passwordInput.addEventListener('input', updateUI);
+                document.getElementById('togglePassword').addEventListener('click', toggleVisibility);
+                document.getElementById('generateBtn').addEventListener('click', setGeneratedPassword);
+                document.getElementById('darkModeToggle').addEventListener('change', toggleDarkMode);
+                document.getElementById('animatedBgToggle').addEventListener('change', toggleAnimatedBg);
+                
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        currentMode = btn.dataset.mode;
+                        setGeneratedPassword();
+                    });
+                });
+                
+                updateUI();
+            });
+        })();
+    </script>
+</body>
+</html>
